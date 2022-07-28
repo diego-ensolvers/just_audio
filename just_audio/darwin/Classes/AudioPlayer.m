@@ -379,12 +379,12 @@ typedef struct JATapStorage {
 
     NSLog(@"Releasing old tap");
     // release old tap
-    AVMutableAudioMixInputParameters *inputParams = _tapPlayerItem.audioMix.inputParameters[0];
-    MTAudioProcessingTapRef tap = inputParams.audioTapProcessor;
-    CFRetain(tap);
-    _tapPlayerItem.audioMix = nil;
-    CFRelease(tap);
-    _tapPlayerItem = nil;
+//    AVMutableAudioMixInputParameters *inputParams = _tapPlayerItem.audioMix.inputParameters[0];
+//    MTAudioProcessingTapRef tap = inputParams.audioTapProcessor;
+//    CFRetain(tap);
+//    _tapPlayerItem.audioMix = nil;
+//    CFRelease(tap);
+//    _tapPlayerItem = nil;
 }
 
 - (void)ensureTap {
