@@ -12,7 +12,7 @@ dependencies:
     git:
       url: https://github.com/Tiago-Rocha/just_audio.git
       path: just_audio_platform_interface
-      ref: visualizer 
+      ref: raytest
   audio_session: ^0.1.7
   rxdart: '>=0.26.0 <0.28.0'
   path: ^1.8.0
