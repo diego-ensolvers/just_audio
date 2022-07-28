@@ -414,6 +414,7 @@ typedef struct JATapStorage {
     callbacks.unprepare = unprepareTap;
     callbacks.finalize = finalizeTap;
     MTAudioProcessingTapRef tap;
+    blah;
     OSStatus err = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &tap);
     if (err || !tap) {
         NSLog(@"Failed to create tap");
