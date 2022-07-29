@@ -18,6 +18,7 @@ typedef struct JATapStorage {
     int captureSize;
     void *waveform;
     void *fft;
+    void *waveformEventChannel;
 } JATapStorage;
 
 // TODO: Check for and report invalid state transitions.
@@ -378,13 +379,13 @@ typedef struct JATapStorage {
     if (!_tapPlayerItem) return;
 
     NSLog(@"Releasing old tap");
-    // release old tap
-//    AVMutableAudioMixInputParameters *inputParams = _tapPlayerItem.audioMix.inputParameters[0];
-//    MTAudioProcessingTapRef tap = inputParams.audioTapProcessor;
-//    CFRetain(tap);
-//    _tapPlayerItem.audioMix = nil;
-//    CFRelease(tap);
-//    _tapPlayerItem = nil;
+//     release old tap
+    AVMutableAudioMixInputParameters *inputParams = _tapPlayerItem.audioMix.inputParameters[0];
+    MTAudioProcessingTapRef tap = inputParams.audioTapProcessor;
+    CFRetain(tap);
+    _tapPlayerItem.audioMix = nil;
+    CFRelease(tap);
+    _tapPlayerItem = nil;
 }
 
 - (void)ensureTap {
@@ -414,7 +415,6 @@ typedef struct JATapStorage {
     callbacks.unprepare = unprepareTap;
     callbacks.finalize = finalizeTap;
     MTAudioProcessingTapRef tap;
-    blah;
     OSStatus err = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &tap);
     if (err || !tap) {
         NSLog(@"Failed to create tap");
@@ -433,6 +433,7 @@ static void initTap(MTAudioProcessingTapRef tap, void *clientInfo, void **tapSto
     storage->captureSize = self.visualizerCaptureSize;
     storage->waveform = calloc(1, self.visualizerCaptureSize);
     storage->fft = calloc(1, self.visualizerCaptureSize);
+    storage->waveformEventChannel = (__bridge void *) self->_waveformEventChannel;
     *tapStorageOut = storage;
 }
 
@@ -451,7 +452,8 @@ static void processTap(MTAudioProcessingTapRef tap, CMItemCount frameCount, MTAu
         return;
     }
     JATapStorage *storage = (JATapStorage *)MTAudioProcessingTapGetStorage(tap);
-    long long now = (long long)([[NSDate date] timeIntervalSince1970] * 1000.0);
+    if (storage == NULL) return;
+//    long long now = (long long)([[NSDate date] timeIntervalSince1970] * 1000.0);
 
     UInt8 *waveform = (UInt8 *)storage->waveform;
     int captureSize = storage->captureSize;
@@ -471,21 +473,40 @@ static void processTap(MTAudioProcessingTapRef tap, CMItemCount frameCount, MTAu
         else if (unsignedSample < 0) unsignedSample = 0;
         waveform[i] = (UInt8)unsignedSample;
     }
-    
+        
     // TODO: Take captureRate into account. Maybe let the main thread
     // periodically take samples, and we provide them here in a CMSimpleQueue.
-    AudioPlayer *self = (__bridge AudioPlayer *)(storage->self);
+//    AudioPlayer *self = (__bridge AudioPlayer *)(storage->self);
+
     // NOTE: Apple recommends to NOT allocate any memory in the tap process function.
     // TODO: Check impact on performance and memory.
     
     // FFT
-    UInt8 *fftMag = (UInt8*)storage->fft;
-    [AndroidFFT doFft:fftMag :waveform :captureSize];
+//    UInt8 *fftMag = (UInt8*)storage->fft;
+//    [AndroidFFT doFft:fftMag :waveform :captureSize];
+
     
+    // RH: Dirty hack part 1 - AudioPlayer gets dealloc'd before tap is finished. Attempting a bridged cast
+    // blows up horribly. So we skip the FFT, reference the waveform channel independently, and delay waveform
+    // channel dispose.
+    //
+    // Either the library maintainer will fix this properly in the next X months, or if we get time we can revisit.
+    
+    BetterEventChannel *waveformEventChannel = (__bridge BetterEventChannel *) storage->waveformEventChannel;
+
     dispatch_async(dispatch_get_main_queue(), ^{
+//        void *storageSelf = storage->self;
+//        if (storageSelf == NULL) return;
+//        __weak AudioPlayer *ap = (__bridge AudioPlayer *)(storageSelf);
+
         NSData *data = [NSData dataWithBytes:(void *)waveform length:captureSize];
-        NSData *data2 = [NSData dataWithBytes:(void *)fftMag length:captureSize];
-        [self broadcastVisualizerCapture:data :data2 samplingRate:(int)(storage->samplingRate)];
+        
+        [waveformEventChannel sendEvent:@{
+            @"data": data,
+            @"samplingRate": @((int)(storage->samplingRate)),
+        }];
+//        NSData *data2 = [NSData dataWithBytes:(void *)fftMag length:captureSize];
+//        [self broadcastVisualizerCapture:data :nil samplingRate:(int)(storage->samplingRate)];
     });
 }
 
@@ -1527,7 +1548,12 @@ static void finalizeTap(MTAudioProcessingTapRef tap) {
     // Untested:
     [_eventChannel dispose];
     [_dataEventChannel dispose];
-    [_waveformEventChannel dispose];
+    
+    // RH: Dirty hack part 2 - Delay _waveformEventChannel until tap has had time to clean itself up.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [_waveformEventChannel dispose];
+    });
+
     [_fftEventChannel dispose];
     [_methodChannel setMethodCallHandler:nil];
 }
