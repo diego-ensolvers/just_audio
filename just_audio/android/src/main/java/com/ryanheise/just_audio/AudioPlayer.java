@@ -1,13 +1,19 @@
 package com.ryanheise.just_audio;
 
+import android.Manifest;
+import android.app.Activity;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.media.audiofx.AudioEffect;
 import android.media.audiofx.Equalizer;
+import android.media.audiofx.Visualizer;
 import android.media.audiofx.LoudnessEnhancer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.DefaultLivePlaybackSpeedControl;
 import com.google.android.exoplayer2.DefaultLoadControl;
@@ -46,13 +52,13 @@ import com.google.android.exoplayer2.upstream.DefaultHttpDataSource;
 import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.util.Util;
 import io.flutter.Log;
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
 import io.flutter.plugin.common.BinaryMessenger;
-import io.flutter.plugin.common.EventChannel;
-import io.flutter.plugin.common.EventChannel.EventSink;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
+import io.flutter.plugin.common.PluginRegistry;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -62,7 +68,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-public class AudioPlayer implements MethodCallHandler, Player.Listener, MetadataOutput {
+public class AudioPlayer implements MethodCallHandler, Player.Listener, MetadataOutput, PluginRegistry.RequestPermissionsResultListener {
 
     static final String TAG = "AudioPlayer";
 
@@ -72,6 +78,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
     private final MethodChannel methodChannel;
     private final BetterEventChannel eventChannel;
     private final BetterEventChannel dataEventChannel;
+    private ActivityPluginBinding activityPluginBinding;
 
     private ProcessingState processingState;
     private long updatePosition;
@@ -90,6 +97,12 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
     private IcyHeaders icyHeaders;
     private int errorCount;
     private AudioAttributes pendingAudioAttributes;
+    private BetterVisualizer visualizer;
+    private Result startVisualizerResult;
+    private boolean enableWaveform;
+    private boolean enableFft;
+    private Integer visualizerCaptureRate;
+    private Integer visualizerCaptureSize;
     private LoadControl loadControl;
     private boolean offloadSchedulingEnabled;
     private LivePlaybackSpeedControl livePlaybackSpeedControl;
@@ -142,6 +155,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
         methodChannel.setMethodCallHandler(this);
         eventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.events." + id);
         dataEventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.data." + id);
+        visualizer = new BetterVisualizer(messenger, id);
         processingState = ProcessingState.none;
         extractorsFactory.setConstantBitrateSeekingEnabled(true);
         if (audioLoadConfiguration != null) {
@@ -176,9 +190,45 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
         }
     }
 
+    private void requestPermissions() {
+        ActivityCompat.requestPermissions(activityPluginBinding.getActivity(), new String[] { Manifest.permission.RECORD_AUDIO }, 1);
+    }
+
+    public void setActivityPluginBinding(ActivityPluginBinding activityPluginBinding) {
+        if (this.activityPluginBinding != null && this.activityPluginBinding != activityPluginBinding) {
+            this.activityPluginBinding.removeRequestPermissionsResultListener(this);
+        }
+        this.activityPluginBinding = activityPluginBinding;
+        if (activityPluginBinding != null) {
+            activityPluginBinding.addRequestPermissionsResultListener(this);
+            // If there is a pending startVisualizer request
+            if (startVisualizerResult != null) {
+                requestPermissions();
+            }
+        }
+    }
+
     private void startWatchingBuffer() {
         handler.removeCallbacks(bufferWatcher);
         handler.post(bufferWatcher);
+    }
+
+    @Override
+    public boolean onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        for (int i = 0; i < permissions.length; i++) {
+            if (permissions[i].equals(Manifest.permission.RECORD_AUDIO)) {
+                if (grantResults[i] == PackageManager.PERMISSION_GRANTED) {
+                    visualizer.setHasPermission(true);
+                    if (startVisualizerResult != null) {
+                        completeStartVisualizer(true);
+                    }
+                    return true;
+                }
+                completeStartVisualizer(false);
+                break;
+            }
+        }
+        return false;
     }
 
     private void setAudioSessionId(int audioSessionId) {
@@ -187,6 +237,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
         } else {
             this.audioSessionId = audioSessionId;
         }
+        visualizer.onAudioSessionId(this.audioSessionId);
         clearAudioEffects();
         if (this.audioSessionId != null) {
             for (Object rawAudioEffect : rawAudioEffects) {
@@ -405,12 +456,50 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
         seekResult = null;
     }
 
+    private void completeStartVisualizer(boolean success) {
+        if (startVisualizerResult == null) return;
+        if (success) {
+            visualizer.start(visualizerCaptureRate, visualizerCaptureSize, enableWaveform, enableFft);
+            startVisualizerResult.success(new HashMap<String, Object>());
+        } else {
+            startVisualizerResult.error("RECORD_AUDIO permission denied", null, null);
+        }
+        startVisualizerResult = null;
+    }
+
     @Override
     public void onMethodCall(final MethodCall call, final Result result) {
         ensurePlayerInitialized();
 
         try {
             switch (call.method) {
+            case "startVisualizer":
+                Boolean enableWaveform = call.argument("enableWaveform");
+                Boolean enableFft = call.argument("enableFft");
+                Integer captureRate = call.argument("captureRate");
+                Integer captureSize = call.argument("captureSize");
+                this.enableWaveform = enableWaveform;
+                this.enableFft = enableFft;
+                visualizerCaptureRate = captureRate;
+                visualizerCaptureSize = captureSize;
+                startVisualizerResult = result;
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                    // We have permission
+                    visualizer.setHasPermission(true);
+                    if (audioSessionId != null) {
+                        completeStartVisualizer(true);
+                    }
+                } else if (activityPluginBinding != null && activityPluginBinding.getActivity() != null) {
+                    // We are ready to request permission
+                    requestPermissions();
+                } else {
+                    // Will request permission in setActivityPluginBinding
+                }
+                break;
+            case "stopVisualizer":
+                visualizer.stop();
+                result.success(new HashMap<String, Object>());
+                break;
             case "load":
                 Long initialPosition = getLong(call.argument("initialPosition"));
                 Integer initialIndex = call.argument("initialIndex");
@@ -991,6 +1080,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
             processingState = ProcessingState.none;
             broadcastImmediatePlaybackEvent();
         }
+        visualizer.dispose();
         eventChannel.endOfStream();
         dataEventChannel.endOfStream();
     }

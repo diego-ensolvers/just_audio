@@ -1599,6 +1599,29 @@ class MockAudioPlayer extends AudioPlayerPlatform {
     return ConcatenatingRemoveRangeResponse();
   }
 
+  @override
+  Future<StartVisualizerResponse> startVisualizer(
+      StartVisualizerRequest request) {
+    // TODO: implement startVisualizer
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<StopVisualizerResponse> stopVisualizer(StopVisualizerRequest request) {
+    // TODO: implement stopVisualizer
+    throw UnimplementedError();
+  }
+
+  @override
+  // TODO: implement visualizerFftStream
+  Stream<VisualizerFftCaptureMessage> get visualizerFftStream =>
+      StreamController<VisualizerFftCaptureMessage>().stream;
+
+  @override
+  // TODO: implement visualizerWaveformStream
+  Stream<VisualizerWaveformCaptureMessage> get visualizerWaveformStream =>
+      StreamController<VisualizerWaveformCaptureMessage>().stream;
+
   void _broadcastPlaybackEvent() {
     String? url;
     if (_audioSource is UriAudioSourceMessage) {

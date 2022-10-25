@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 
@@ -47,6 +48,23 @@ class MethodChannelAudioPlayer extends AudioPlayerPlatform {
           .map((map) => PlaybackEventMessage.fromMap(map));
 
   @override
+  Stream<VisualizerWaveformCaptureMessage> get visualizerWaveformStream =>
+      EventChannel('com.ryanheise.just_audio.waveform_events.$id')
+          .receiveBroadcastStream()
+          .cast<Map<dynamic, dynamic>>()
+          .map((event) => VisualizerWaveformCaptureMessage(
+              samplingRate: event['samplingRate'] as int,
+              data: event['data'] as Uint8List));
+
+  @override
+  Stream<VisualizerFftCaptureMessage> get visualizerFftStream =>
+      EventChannel('com.ryanheise.just_audio.fft_events.$id')
+          .receiveBroadcastStream()
+          .cast<Map<dynamic, dynamic>>()
+          .map((event) => VisualizerFftCaptureMessage(
+              samplingRate: event['samplingRate'] as int,
+              data: event['data'] as Uint8List));
+
   Stream<PlayerDataMessage> get playerDataMessageStream =>
       EventChannel('com.ryanheise.just_audio.data.$id')
           .receiveBroadcastStream()
@@ -189,6 +207,21 @@ class MethodChannelAudioPlayer extends AudioPlayerPlatform {
     return ConcatenatingMoveResponse.fromMap(
         (await _channel.invokeMethod<Map<dynamic, dynamic>>(
             'concatenatingMove', request.toMap()))!);
+  }
+
+  @override
+  Future<StartVisualizerResponse> startVisualizer(
+      StartVisualizerRequest request) async {
+    return StartVisualizerResponse.fromMap(
+        (await _channel.invokeMethod<Map<dynamic, dynamic>>(
+            'startVisualizer', request.toMap()))!);
+  }
+
+  @override
+  Future<StopVisualizerResponse> stopVisualizer(
+      StopVisualizerRequest request) async {
+    return StopVisualizerResponse.fromMap(
+        (await _channel.invokeMethod('stopVisualizer', request.toMap()))!);
   }
 
   @override

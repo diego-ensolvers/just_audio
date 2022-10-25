@@ -1,7 +1,9 @@
 package com.ryanheise.just_audio;
 
+import android.app.Activity;
 import android.content.Context;
 import androidx.annotation.NonNull;
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
@@ -15,6 +17,7 @@ public class MainMethodCallHandler implements MethodCallHandler {
 
     private final Context applicationContext;
     private final BinaryMessenger messenger;
+    private ActivityPluginBinding activityPluginBinding;
 
     private final Map<String, AudioPlayer> players = new HashMap<>();
 
@@ -22,6 +25,13 @@ public class MainMethodCallHandler implements MethodCallHandler {
             BinaryMessenger messenger) {
         this.applicationContext = applicationContext;
         this.messenger = messenger;
+    }
+
+    void setActivityPluginBinding(ActivityPluginBinding activityPluginBinding) {
+        this.activityPluginBinding = activityPluginBinding;
+        for (AudioPlayer player : players.values()) {
+            player.setActivityPluginBinding(activityPluginBinding);
+        }
     }
 
     @Override
@@ -34,7 +44,11 @@ public class MainMethodCallHandler implements MethodCallHandler {
                 break;
             }
             List<Object> rawAudioEffects = call.argument("androidAudioEffects");
-            players.put(id, new AudioPlayer(applicationContext, messenger, id, call.argument("audioLoadConfiguration"), rawAudioEffects, call.argument("androidOffloadSchedulingEnabled")));
+            final AudioPlayer player = new AudioPlayer(applicationContext, messenger, id, call.argument("audioLoadConfiguration"), rawAudioEffects, call.argument("androidOffloadSchedulingEnabled"));
+            players.put(id, player);
+            if (activityPluginBinding != null) {
+                player.setActivityPluginBinding(activityPluginBinding);
+            }
             result.success(null);
             break;
         }
