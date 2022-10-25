@@ -8,7 +8,6 @@ import 'package:audio_session/audio_session.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:just_audio_platform_interface/just_audio_platform_interface.dart';
 import 'package:meta/meta.dart' show experimental;
 import 'package:path/path.dart' as p;
@@ -134,7 +133,8 @@ class AudioPlayer {
   final _loopModeSubject = BehaviorSubject.seeded(LoopMode.off);
   final _shuffleModeEnabledSubject = BehaviorSubject.seeded(false);
   final _androidAudioSessionIdSubject = BehaviorSubject<int?>();
-  final _positionDiscontinuitySubject = PublishSubject<PositionDiscontinuity>(sync: true);
+  final _positionDiscontinuitySubject =
+      PublishSubject<PositionDiscontinuity>(sync: true);
   var _seeking = false;
   // ignore: close_sinks
   BehaviorSubject<Duration>? _positionSubject;
@@ -214,7 +214,8 @@ class AudioPlayer {
       if (prev.currentIndex == null || curr.currentIndex == null) return;
       if (curr.currentIndex != prev.currentIndex) {
         // If we've changed item without seeking, it must be an autoAdvance.
-        _positionDiscontinuitySubject.add(PositionDiscontinuity(PositionDiscontinuityReason.autoAdvance, prev, curr));
+        _positionDiscontinuitySubject.add(PositionDiscontinuity(
+            PositionDiscontinuityReason.autoAdvance, prev, curr));
       } else {
         // If the item is the same, try to determine whether we have looped
         // back.
@@ -527,6 +528,10 @@ class AudioPlayer {
   /// A stream broadcasting every position discontinuity.
   Stream<PositionDiscontinuity> get positionDiscontinuityStream => _positionDiscontinuitySubject.stream;
 
+  /// A stream broadcasting every position discontinuity.
+  Stream<PositionDiscontinuity> get positionDiscontinuityStream =>
+      _positionDiscontinuitySubject.stream;
+
   /// Whether the player should automatically delay playback in order to
   /// minimize stalling. (iOS 10.0 or later only)
   bool get automaticallyWaitsToMinimizeStalling => _automaticallyWaitsToMinimizeStalling;
@@ -543,8 +548,11 @@ class AudioPlayer {
 
   Duration _getPositionFor(PlaybackEvent playbackEvent) {
     if (playing && processingState == ProcessingState.ready) {
-      final result = playbackEvent.updatePosition + (DateTime.now().difference(playbackEvent.updateTime)) * speed;
-      return playbackEvent.duration == null || result <= playbackEvent.duration! ? result : playbackEvent.duration!;
+      final result = playbackEvent.updatePosition +
+          (DateTime.now().difference(playbackEvent.updateTime)) * speed;
+      return playbackEvent.duration == null || result <= playbackEvent.duration!
+          ? result
+          : playbackEvent.duration!;
     } else {
       return playbackEvent.updatePosition;
     }
@@ -1072,9 +1080,12 @@ class AudioPlayer {
             updateTime: DateTime.now(),
           );
           _playbackEventSubject.add(_playbackEvent);
-          _positionDiscontinuitySubject
-              .add(PositionDiscontinuity(PositionDiscontinuityReason.seek, prevPlaybackEvent, _playbackEvent));
-          await (await _platform).seek(SeekRequest(position: position, index: index));
+          _positionDiscontinuitySubject.add(PositionDiscontinuity(
+              PositionDiscontinuityReason.seek,
+              prevPlaybackEvent,
+              _playbackEvent));
+          await (await _platform)
+              .seek(SeekRequest(position: position, index: index));
         } finally {
           _seeking = false;
         }
@@ -2470,8 +2481,12 @@ class ConcatenatingAudioSource extends AudioSource {
     _shuffleOrder.clear();
     if (_player != null) {
       _player!._broadcastSequence();
-      await (await _player!._platform).concatenatingRemoveRange(ConcatenatingRemoveRangeRequest(
-          id: _id, startIndex: 0, endIndex: end, shuffleOrder: List.of(_shuffleOrder.indices)));
+      await (await _player!._platform).concatenatingRemoveRange(
+          ConcatenatingRemoveRangeRequest(
+              id: _id,
+              startIndex: 0,
+              endIndex: end,
+              shuffleOrder: List.of(_shuffleOrder.indices)));
     }
   }
 
@@ -3075,8 +3090,10 @@ _ProxyHandler _proxyHandlerForUri(
     String? host;
     try {
       final requestHeaders = <String, String>{if (headers != null) ...headers};
-      request.headers.forEach((name, value) => requestHeaders[name] = value.join(', '));
-      final originRequest = await _getUrl(client, redirectedUri ?? uri, headers: requestHeaders);
+      request.headers
+          .forEach((name, value) => requestHeaders[name] = value.join(', '));
+      final originRequest =
+          await _getUrl(client, redirectedUri ?? uri, headers: requestHeaders);
       host = originRequest.headers.value(HttpHeaders.hostHeader);
       final originResponse = await originRequest.close();
       if (originResponse.redirects.isNotEmpty) {
@@ -3718,7 +3735,8 @@ enum PositionDiscontinuityReason {
   autoAdvance,
 }
 
-Future<HttpClientRequest> _getUrl(HttpClient client, Uri uri, {Map<String, String>? headers}) async {
+Future<HttpClientRequest> _getUrl(HttpClient client, Uri uri,
+    {Map<String, String>? headers}) async {
   final request = await client.getUrl(uri);
   if (headers != null) {
     final host = request.headers.value(HttpHeaders.hostHeader);
