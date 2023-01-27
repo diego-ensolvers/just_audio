@@ -2,6 +2,8 @@ package com.ryanheise.just_audio;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
+
 import androidx.annotation.NonNull;
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
 import io.flutter.plugin.common.BinaryMessenger;
@@ -18,6 +20,9 @@ public class MainMethodCallHandler implements MethodCallHandler {
     private final Context applicationContext;
     private final BinaryMessenger messenger;
     private ActivityPluginBinding activityPluginBinding;
+    public static Map<String, Object> asd = new HashMap<>();
+    public static List<Object> asd2 = new ArrayList<>();
+    public static AudioPlayer ap;
 
     private final Map<String, AudioPlayer> players = new HashMap<>();
 
@@ -44,11 +49,21 @@ public class MainMethodCallHandler implements MethodCallHandler {
                 break;
             }
             List<Object> rawAudioEffects = call.argument("androidAudioEffects");
-            final AudioPlayer player = new AudioPlayer(applicationContext, messenger, id, call.argument("audioLoadConfiguration"), rawAudioEffects, call.argument("androidOffloadSchedulingEnabled"));
-            players.put(id, player);
-            if (activityPluginBinding != null) {
-                player.setActivityPluginBinding(activityPluginBinding);
-            }
+
+            asd.put("appContext", applicationContext);
+            asd.put("messenger", messenger);
+            asd.put("id", id);
+            asd.put("audioLoadConfiguration", call.argument("audioLoadConfiguration"));
+            asd2 = rawAudioEffects;
+            asd.put("scheduled", call.argument("androidOffloadSchedulingEnabled"));
+            asd.put("activityPluginBinding", activityPluginBinding);
+
+            this.activityPluginBinding.getActivity().startService(new Intent(this.activityPluginBinding.getActivity(), AudioPlayer.class));
+            //final AudioPlayer player = new AudioPlayer(applicationContext, messenger, id, call.argument("audioLoadConfiguration"), rawAudioEffects, call.argument("androidOffloadSchedulingEnabled"));
+            //players.put(id, player);
+            //if (activityPluginBinding != null) {
+            //    player.setActivityPluginBinding(activityPluginBinding);
+            //}
             result.success(null);
             break;
         }
@@ -58,6 +73,10 @@ public class MainMethodCallHandler implements MethodCallHandler {
             if (player != null) {
                 player.dispose();
                 players.remove(id);
+            } else {
+                if (ap != null) {
+                    ap.dispose();
+                }
             }
             result.success(new HashMap<String, Object>());
             break;

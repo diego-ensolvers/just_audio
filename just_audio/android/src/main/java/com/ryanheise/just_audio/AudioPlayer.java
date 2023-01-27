@@ -2,7 +2,13 @@ package com.ryanheise.just_audio;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.audiofx.AudioEffect;
 import android.media.audiofx.Equalizer;
@@ -11,8 +17,12 @@ import android.media.audiofx.LoudnessEnhancer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
+
+import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.DefaultLivePlaybackSpeedControl;
@@ -68,16 +78,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-public class AudioPlayer implements MethodCallHandler, Player.Listener, MetadataOutput, PluginRegistry.RequestPermissionsResultListener {
+public class AudioPlayer extends Service implements MethodCallHandler, Player.Listener, MetadataOutput, PluginRegistry.RequestPermissionsResultListener {
 
     static final String TAG = "AudioPlayer";
 
     private static Random random = new Random();
 
-    private final Context context;
-    private final MethodChannel methodChannel;
-    private final BetterEventChannel eventChannel;
-    private final BetterEventChannel dataEventChannel;
+    private Context context;
+    private MethodChannel methodChannel;
+    private BetterEventChannel eventChannel;
+    private BetterEventChannel dataEventChannel;
     private ActivityPluginBinding activityPluginBinding;
 
     private ProcessingState processingState;
@@ -146,6 +156,10 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
             }
         }
     };
+
+    public AudioPlayer() {
+        Log.d("Service Started", "Service started");
+    }
 
     public AudioPlayer(final Context applicationContext, final BinaryMessenger messenger, final String id, Map<?, ?> audioLoadConfiguration, List<Object> rawAudioEffects, Boolean offloadSchedulingEnabled) {
         this.context = applicationContext;
@@ -1124,6 +1138,102 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
             map.put((String)args[i], args[i + 1]);
         }
         return map;
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel serviceChannel = new NotificationChannel(
+                    "ForegroundServiceChannel",
+                    "Foreground Service Channel",
+                    NotificationManager.IMPORTANCE_DEFAULT
+            );
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            manager.createNotificationChannel(serviceChannel);
+        }
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent.getAction() != null && intent.getAction().equals("stop")) {
+            stopForeground(true);
+            stopSelf();
+            dispose();
+        }
+
+        Intent stopSelf = new Intent(this, AudioPlayer.class);
+        stopSelf.setAction("stop");
+        PendingIntent pStopSelf = PendingIntent.getService(this, 0, stopSelf,PendingIntent.FLAG_IMMUTABLE);
+
+        //String input = intent.getStringExtra("inputExtra");
+        createNotificationChannel();
+        //Intent notificationIntent = new Intent(this, MainActivity.class);
+        //PendingIntent pendingIntent = PendingIntent.getActivity(this,0, notificationIntent, 0);
+        Notification notification = new NotificationCompat.Builder(this, "ForegroundServiceChannel")
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setContentTitle("Example Service")
+                .setContentText("Example Serivce is running")
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setCategory(Notification.CATEGORY_SERVICE)
+                .addAction(R.mipmap.ic_launcher, "Stop", pStopSelf)
+                .build();
+        startForeground(1, notification);
+
+        Context applicationContext = (Context) MainMethodCallHandler.asd.get("appContext");
+        BinaryMessenger messenger = (BinaryMessenger) MainMethodCallHandler.asd.get("messenger");
+        String id = (String) MainMethodCallHandler.asd.get("id");
+        Map<?, ?> audioLoadConfiguration = (Map<?, ?>) MainMethodCallHandler.asd.get("audioLoadConfiguration");
+        List<Object> rawAudioEffects = MainMethodCallHandler.asd2;
+        Boolean offloadSchedulingEnabled = (Boolean) MainMethodCallHandler.asd.get("scheduled");
+        this.activityPluginBinding = (ActivityPluginBinding) MainMethodCallHandler.asd.get("activityPluginBinding");
+
+        this.context = applicationContext;
+        this.rawAudioEffects = rawAudioEffects;
+        this.offloadSchedulingEnabled = offloadSchedulingEnabled != null ? offloadSchedulingEnabled : false;
+        methodChannel = new MethodChannel(messenger, "com.ryanheise.just_audio.methods." + id);
+        methodChannel.setMethodCallHandler(this);
+        eventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.events." + id);
+        dataEventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.data." + id);
+        visualizer = new BetterVisualizer(messenger, id);
+        processingState = ProcessingState.none;
+        extractorsFactory.setConstantBitrateSeekingEnabled(true);
+        if (audioLoadConfiguration != null) {
+            Map<?, ?> loadControlMap = (Map<?, ?>)audioLoadConfiguration.get("androidLoadControl");
+            if (loadControlMap != null) {
+                DefaultLoadControl.Builder builder = new DefaultLoadControl.Builder()
+                        .setBufferDurationsMs(
+                                (int)((getLong(loadControlMap.get("minBufferDuration")))/1000),
+                                (int)((getLong(loadControlMap.get("maxBufferDuration")))/1000),
+                                (int)((getLong(loadControlMap.get("bufferForPlaybackDuration")))/1000),
+                                (int)((getLong(loadControlMap.get("bufferForPlaybackAfterRebufferDuration")))/1000)
+                        )
+                        .setPrioritizeTimeOverSizeThresholds((Boolean)loadControlMap.get("prioritizeTimeOverSizeThresholds"))
+                        .setBackBuffer((int)((getLong(loadControlMap.get("backBufferDuration")))/1000), false);
+                if (loadControlMap.get("targetBufferBytes") != null) {
+                    builder.setTargetBufferBytes((Integer)loadControlMap.get("targetBufferBytes"));
+                }
+                loadControl = builder.build();
+            }
+            Map<?, ?> livePlaybackSpeedControlMap = (Map<?, ?>)audioLoadConfiguration.get("androidLivePlaybackSpeedControl");
+            if (livePlaybackSpeedControlMap != null) {
+                DefaultLivePlaybackSpeedControl.Builder builder = new DefaultLivePlaybackSpeedControl.Builder()
+                        .setFallbackMinPlaybackSpeed((float)((double)((Double)livePlaybackSpeedControlMap.get("fallbackMinPlaybackSpeed"))))
+                        .setFallbackMaxPlaybackSpeed((float)((double)((Double)livePlaybackSpeedControlMap.get("fallbackMaxPlaybackSpeed"))))
+                        .setMinUpdateIntervalMs(((getLong(livePlaybackSpeedControlMap.get("minUpdateInterval")))/1000))
+                        .setProportionalControlFactor((float)((double)((Double)livePlaybackSpeedControlMap.get("proportionalControlFactor"))))
+                        .setMaxLiveOffsetErrorMsForUnitSpeed(((getLong(livePlaybackSpeedControlMap.get("maxLiveOffsetErrorForUnitSpeed")))/1000))
+                        .setTargetLiveOffsetIncrementOnRebufferMs(((getLong(livePlaybackSpeedControlMap.get("targetLiveOffsetIncrementOnRebuffer")))/1000))
+                        .setMinPossibleLiveOffsetSmoothingFactor((float)((double)((Double)livePlaybackSpeedControlMap.get("minPossibleLiveOffsetSmoothingFactor"))));
+                livePlaybackSpeedControl = builder.build();
+            }
+        }
+        return START_STICKY;
+    }
+
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
     }
 
     enum ProcessingState {
