@@ -526,9 +526,6 @@ class AudioPlayer {
   /// A stream broadcasting every position discontinuity.
   Stream<PositionDiscontinuity> get positionDiscontinuityStream => _positionDiscontinuitySubject.stream;
 
-  /// A stream broadcasting every position discontinuity.
-  Stream<PositionDiscontinuity> get positionDiscontinuityStream => _positionDiscontinuitySubject.stream;
-
   /// Whether the player should automatically delay playback in order to
   /// minimize stalling. (iOS 10.0 or later only)
   bool get automaticallyWaitsToMinimizeStalling => _automaticallyWaitsToMinimizeStalling;
