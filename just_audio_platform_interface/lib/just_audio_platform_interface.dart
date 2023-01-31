@@ -78,6 +78,11 @@ abstract class AudioPlayerPlatform {
       const Stream<PlayerDataMessage>.empty();
 
   /// A stream of visualizer waveform data.
+  Stream<PlayerStatusMessage> get playerStatusStream {
+    throw UnimplementedError('playerStatusStream has not been implemented.');
+  }
+
+  /// A stream of visualizer waveform data.
   Stream<VisualizerWaveformCaptureMessage> get visualizerWaveformStream {
     throw UnimplementedError(
         'visualizerWaveformStream has not been implemented.');
@@ -915,6 +920,8 @@ class StopVisualizerResponse {
   static StopVisualizerResponse fromMap(Map<dynamic, dynamic> map) =>
       StopVisualizerResponse();
 }
+
+enum PlayerStatusMessage { started, stopped }
 
 /// A capture of audio waveform data.
 class VisualizerWaveformCaptureMessage {

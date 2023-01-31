@@ -48,6 +48,13 @@ class MethodChannelAudioPlayer extends AudioPlayerPlatform {
           .map((map) => PlaybackEventMessage.fromMap(map));
 
   @override
+  Stream<PlayerStatusMessage> get playerStatusStream =>
+      EventChannel('com.ryanheise.just_audio.player.status.$id')
+          .receiveBroadcastStream()
+          .cast<String>()
+          .map((map) => PlayerStatusMessage.values.byName(map));
+
+  @override
   Stream<VisualizerWaveformCaptureMessage> get visualizerWaveformStream =>
       EventChannel('com.ryanheise.just_audio.waveform_events.$id')
           .receiveBroadcastStream()

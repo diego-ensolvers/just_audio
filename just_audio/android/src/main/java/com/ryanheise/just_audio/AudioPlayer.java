@@ -88,6 +88,7 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
     private MethodChannel methodChannel;
     private BetterEventChannel eventChannel;
     private BetterEventChannel dataEventChannel;
+    private BetterEventChannel statusEventChannel;
     private ActivityPluginBinding activityPluginBinding;
 
     private ProcessingState processingState;
@@ -157,10 +158,7 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
         }
     };
 
-    public AudioPlayer() {
-        Log.d("Service Started", "Service started");
-    }
-
+    /* Old approach
     public AudioPlayer(final Context applicationContext, final BinaryMessenger messenger, final String id, Map<?, ?> audioLoadConfiguration, List<Object> rawAudioEffects, Boolean offloadSchedulingEnabled) {
         this.context = applicationContext;
         this.rawAudioEffects = rawAudioEffects;
@@ -202,7 +200,7 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
                 livePlaybackSpeedControl = builder.build();
             }
         }
-    }
+    }*/
 
     private void requestPermissions() {
         ActivityCompat.requestPermissions(activityPluginBinding.getActivity(), new String[] { Manifest.permission.RECORD_AUDIO }, 1);
@@ -1092,6 +1090,7 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
             player.release();
             player = null;
             processingState = ProcessingState.none;
+            statusEventChannel.success(PlayerStatus.stopped.name());
             broadcastImmediatePlaybackEvent();
         }
         visualizer.dispose();
@@ -1140,60 +1139,58 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
         return map;
     }
 
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel serviceChannel = new NotificationChannel(
-                    "ForegroundServiceChannel",
-                    "Foreground Service Channel",
-                    NotificationManager.IMPORTANCE_DEFAULT
-            );
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            manager.createNotificationChannel(serviceChannel);
-        }
+    private void stop() {
+        stopForeground(true);
+        stopSelf();
+        dispose();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // Stop on touch notification
         if (intent.getAction() != null && intent.getAction().equals("stop")) {
-            stopForeground(true);
-            stopSelf();
-            dispose();
+            stop();
         }
 
-        Intent stopSelf = new Intent(this, AudioPlayer.class);
-        stopSelf.setAction("stop");
-        PendingIntent pStopSelf = PendingIntent.getService(this, 0, stopSelf,PendingIntent.FLAG_IMMUTABLE);
-
-        //String input = intent.getStringExtra("inputExtra");
-        createNotificationChannel();
-        //Intent notificationIntent = new Intent(this, MainActivity.class);
-        //PendingIntent pendingIntent = PendingIntent.getActivity(this,0, notificationIntent, 0);
-        Notification notification = new NotificationCompat.Builder(this, "ForegroundServiceChannel")
+        // Build notification to show activity
+        Intent notificationIntent = new Intent(getApplicationContext(), MainMethodCallHandler.playerParamsDTO.activityPluginBinding.getActivity().getClass());
+        notificationIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        //If we want to stop service
+        //stopSelf.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        //stopSelf.setAction("stop");
+        PendingIntent pendingIntent = PendingIntent.getActivity(getApplicationContext(), 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder notificationBuilder = new Notification.Builder(getApplicationContext(), "ForegroundServiceChannel")
+                .setContentIntent(pendingIntent)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
-                .setContentTitle("Example Service")
-                .setContentText("Example Serivce is running")
+                .setContentTitle("Nue Life")
+                .setContentText("Playing songs.")
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setCategory(Notification.CATEGORY_SERVICE)
-                .addAction(R.mipmap.ic_launcher, "Stop", pStopSelf)
-                .build();
-        startForeground(1, notification);
+                .setCategory(Notification.CATEGORY_SERVICE);
 
-        Context applicationContext = (Context) MainMethodCallHandler.asd.get("appContext");
-        BinaryMessenger messenger = (BinaryMessenger) MainMethodCallHandler.asd.get("messenger");
-        String id = (String) MainMethodCallHandler.asd.get("id");
-        Map<?, ?> audioLoadConfiguration = (Map<?, ?>) MainMethodCallHandler.asd.get("audioLoadConfiguration");
-        List<Object> rawAudioEffects = MainMethodCallHandler.asd2;
-        Boolean offloadSchedulingEnabled = (Boolean) MainMethodCallHandler.asd.get("scheduled");
-        this.activityPluginBinding = (ActivityPluginBinding) MainMethodCallHandler.asd.get("activityPluginBinding");
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            notificationBuilder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
+        }
 
-        this.context = applicationContext;
-        this.rawAudioEffects = rawAudioEffects;
+        // Start Service
+        startForeground(1, notificationBuilder.build());
+
+        // Load Params
+        BinaryMessenger messenger = MainMethodCallHandler.playerParamsDTO.binaryMessenger;
+        String id = MainMethodCallHandler.playerParamsDTO.playerId;
+        Map<?, ?> audioLoadConfiguration = MainMethodCallHandler.playerParamsDTO.audioLoadConfiguration;
+        Boolean offloadSchedulingEnabled = MainMethodCallHandler.playerParamsDTO.offloadSchedulingEnabled;
+        this.context = MainMethodCallHandler.playerParamsDTO.appContext;
+        this.rawAudioEffects = MainMethodCallHandler.playerParamsDTO.rawAudioEffects;
+        this.activityPluginBinding = MainMethodCallHandler.playerParamsDTO.activityPluginBinding;
         this.offloadSchedulingEnabled = offloadSchedulingEnabled != null ? offloadSchedulingEnabled : false;
+
+        // Build and start player
         methodChannel = new MethodChannel(messenger, "com.ryanheise.just_audio.methods." + id);
         methodChannel.setMethodCallHandler(this);
         eventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.events." + id);
         dataEventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.data." + id);
+        statusEventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.player.status." + id);
         visualizer = new BetterVisualizer(messenger, id);
         processingState = ProcessingState.none;
         extractorsFactory.setConstantBitrateSeekingEnabled(true);
@@ -1227,7 +1224,20 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
                 livePlaybackSpeedControl = builder.build();
             }
         }
+        statusEventChannel.success(PlayerStatus.started.name());
         return START_STICKY;
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        stop();
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        stop();
     }
 
     @Nullable
@@ -1242,5 +1252,10 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
         buffering,
         ready,
         completed
+    }
+
+    enum PlayerStatus {
+        started,
+        stopped
     }
 }
