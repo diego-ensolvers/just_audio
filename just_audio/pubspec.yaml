@@ -11,7 +11,7 @@ environment:
 
 dependencies:
   just_audio_platform_interface:
-    path: ../just_audio_platform_interface
+    path: just_audio_platform_interface
   audio_session: ^0.1.10
   rxdart: '>=0.26.0 <0.28.0'
   path: ^1.8.0
