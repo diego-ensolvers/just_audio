@@ -79,7 +79,7 @@ import java.util.Map;
 import java.util.Random;
 
 public class AudioPlayer extends Service implements MethodCallHandler, Player.Listener, MetadataOutput, PluginRegistry.RequestPermissionsResultListener {
-
+    static final String CHANNEL_ID = "ForegroundServiceChannel";
     static final String TAG = "AudioPlayer";
 
     private static Random random = new Random();
@@ -1145,12 +1145,30 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
         dispose();
     }
 
+    /**
+     * Necessary for android 11 compatibility
+     */
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel serviceChannel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "Foreground Service Channel",
+                    NotificationManager.IMPORTANCE_DEFAULT
+            );
+
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            manager.createNotificationChannel(serviceChannel);
+        }
+    }
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         // Stop on touch notification
         if (intent.getAction() != null && intent.getAction().equals("stop")) {
             stop();
         }
+
+        createNotificationChannel();
 
         // Build notification to show activity
         Intent notificationIntent = new Intent(getApplicationContext(), MainMethodCallHandler.playerParamsDTO.activityPluginBinding.getActivity().getClass());
@@ -1159,7 +1177,7 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
         //stopSelf.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         //stopSelf.setAction("stop");
         PendingIntent pendingIntent = PendingIntent.getActivity(getApplicationContext(), 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
-        Notification.Builder notificationBuilder = new Notification.Builder(getApplicationContext(), "ForegroundServiceChannel")
+        Notification.Builder notificationBuilder = new Notification.Builder(getApplicationContext(), CHANNEL_ID)
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
