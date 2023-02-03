@@ -1153,7 +1153,7 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
             NotificationChannel serviceChannel = new NotificationChannel(
                     CHANNEL_ID,
                     "Foreground Service Channel",
-                    NotificationManager.IMPORTANCE_DEFAULT
+                    NotificationManager.IMPORTANCE_LOW
             );
 
             NotificationManager manager = getSystemService(NotificationManager.class);
