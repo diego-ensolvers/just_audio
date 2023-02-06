@@ -63,6 +63,8 @@ class AudioPlayer {
 
   final bool _androidOffloadSchedulingEnabled;
 
+  final bool _androidAudioPreview;
+
   /// This is `true` when the audio player needs to engage the native platform
   /// side of the plugin to decode or play audio, and is `false` when the native
   /// resources are not needed (i.e. after initial instantiation and after [stop]).
@@ -177,20 +179,21 @@ class AudioPlayer {
   /// The default audio loading and buffering behaviour can be configured via
   /// the [audioLoadConfiguration] parameter.
   AudioPlayer({
-    String? userAgent,
-    bool handleInterruptions = true,
-    bool androidApplyAudioAttributes = true,
-    bool handleAudioSessionActivation = true,
-    AudioLoadConfiguration? audioLoadConfiguration,
-    AudioPipeline? audioPipeline,
-    bool androidOffloadSchedulingEnabled = false,
-  })  : _id = _uuid.v4(),
+      String? userAgent,
+      bool handleInterruptions = true,
+      bool androidApplyAudioAttributes = true,
+      bool handleAudioSessionActivation = true,
+      AudioLoadConfiguration? audioLoadConfiguration,
+      AudioPipeline? audioPipeline,
+      bool androidOffloadSchedulingEnabled = false,
+      bool androidAudioPreview = false})  : _id = _uuid.v4(),
         _userAgent = userAgent,
         _androidApplyAudioAttributes = androidApplyAudioAttributes && _isAndroid(),
         _handleAudioSessionActivation = handleAudioSessionActivation,
         _audioLoadConfiguration = audioLoadConfiguration,
         _audioPipeline = audioPipeline ?? AudioPipeline(),
-        _androidOffloadSchedulingEnabled = androidOffloadSchedulingEnabled {
+        _androidOffloadSchedulingEnabled = androidOffloadSchedulingEnabled,
+        _androidAudioPreview = androidAudioPreview {
     _audioPipeline._setup(this);
     if (_audioLoadConfiguration?.darwinLoadControl != null) {
       _automaticallyWaitsToMinimizeStalling =
@@ -1335,6 +1338,7 @@ class AudioPlayer {
                   ? _audioPipeline.darwinAudioEffects.map((audioEffect) => audioEffect._toMessage()).toList()
                   : [],
               androidOffloadSchedulingEnabled: _androidOffloadSchedulingEnabled,
+              androidAudioPreview: _androidAudioPreview
             )))
           : (_idlePlatform = _IdleAudioPlayer(id: _id, sequenceStream: sequenceStream));
       if (checkInterruption()) return platform;

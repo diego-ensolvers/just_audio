@@ -417,6 +417,7 @@ class InitRequest {
   final List<AudioEffectMessage> androidAudioEffects;
   final List<AudioEffectMessage> darwinAudioEffects;
   final bool? androidOffloadSchedulingEnabled;
+  final bool androidAudioPreview;
 
   InitRequest({
     required this.id,
@@ -424,6 +425,7 @@ class InitRequest {
     this.androidAudioEffects = const [],
     this.darwinAudioEffects = const [],
     this.androidOffloadSchedulingEnabled,
+    this.androidAudioPreview = false,
   });
 
   Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{
@@ -436,6 +438,7 @@ class InitRequest {
             .map((audioEffect) => audioEffect.toMap())
             .toList(),
         'androidOffloadSchedulingEnabled': androidOffloadSchedulingEnabled,
+        'androidAudioPreview': androidAudioPreview
       };
 }
 

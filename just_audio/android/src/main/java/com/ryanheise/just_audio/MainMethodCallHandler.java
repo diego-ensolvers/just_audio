@@ -27,7 +27,7 @@ public class MainMethodCallHandler implements MethodCallHandler {
     private ActivityPluginBinding activityPluginBinding;
     public static PlayerParamsDTO playerParamsDTO = null;
 
-    //private final Map<String, AudioPlayer> players = new HashMap<>();
+    private final Map<String, AudioPlayer> players = new HashMap<>();
 
     public MainMethodCallHandler(Context applicationContext,
                                  BinaryMessenger messenger) {
@@ -63,43 +63,55 @@ public class MainMethodCallHandler implements MethodCallHandler {
         switch (call.method) {
             case "init": {
                 String id = call.argument("id");
-                if (isMyServiceRunning(AudioPlayer.class)) {
-                    result.error("Platform player " + id + " already exists", null, null);
-                    break;
-                }
-                playerParamsDTO = new PlayerParamsDTO(
-                        applicationContext,
-                        messenger,
-                        id,
-                        call.argument("audioLoadConfiguration"),
-                        call.argument("androidAudioEffects"),
-                        call.argument("androidOffloadSchedulingEnabled"),
-                        activityPluginBinding
-                );
+                if (Boolean.TRUE.equals(call.argument("androidAudioPreview"))) {
+                    // Old approach
+                    if (players.containsKey(id)) {
+                        result.error("Platform player " + id + " already exists", null, null);
+                        break;
+                    }
+                    List<Object> rawAudioEffects = call.argument("androidAudioEffects");
+                    final AudioPlayer player = new AudioPlayer(applicationContext, messenger, id, call.argument("audioLoadConfiguration"), rawAudioEffects, call.argument("androidOffloadSchedulingEnabled"));
+                    players.put(id, player);
+                    if (activityPluginBinding != null) {
+                        player.setActivityPluginBinding(activityPluginBinding);
+                    }
+                } else {
+                    if (isMyServiceRunning(AudioPlayer.class)) {
+                        result.error("Platform player " + id + " already exists", null, null);
+                        break;
+                    }
+                    playerParamsDTO = new PlayerParamsDTO(
+                            applicationContext,
+                            messenger,
+                            id,
+                            call.argument("audioLoadConfiguration"),
+                            call.argument("androidAudioEffects"),
+                            call.argument("androidOffloadSchedulingEnabled"),
+                            activityPluginBinding
+                    );
 
-                this.activityPluginBinding.getActivity().startForegroundService(new Intent(this.activityPluginBinding.getActivity(), AudioPlayer.class));
-            /* Old approach
-            final AudioPlayer player = new AudioPlayer(applicationContext, messenger, id, call.argument("audioLoadConfiguration"), rawAudioEffects, call.argument("androidOffloadSchedulingEnabled"));
-            players.put(id, player);
-            if (activityPluginBinding != null) {
-                player.setActivityPluginBinding(activityPluginBinding);
-            }*/
+                    this.activityPluginBinding.getActivity().startForegroundService(new Intent(this.activityPluginBinding.getActivity(), AudioPlayer.class));
+                }
                 result.success(null);
                 break;
             }
             case "disposePlayer": {
-            /* Old approach
-            String id = call.argument("id");
-            AudioPlayer player = players.get(id);
-            if (player != null) {
-                player.dispose();
-                players.remove(id);
-            }*/
-                dispose();
+                String id = call.argument("id");
+                AudioPlayer player = players.get(id);
+                if (player != null) {
+                    player.dispose();
+                    players.remove(id);
+                } else {
+                    dispose();
+                }
                 result.success(new HashMap<String, Object>());
                 break;
             }
             case "disposeAllPlayers": {
+                for (AudioPlayer player : new ArrayList<AudioPlayer>(players.values())) {
+                    player.dispose();
+                }
+                players.clear();
                 dispose();
                 result.success(new HashMap<String, Object>());
                 break;
@@ -114,11 +126,9 @@ public class MainMethodCallHandler implements MethodCallHandler {
         playerParamsDTO = null;
         Intent serviceIntent = new Intent(this.applicationContext, AudioPlayer.class);
         this.applicationContext.stopService(serviceIntent);
-        /* Old approach
         for (AudioPlayer player : new ArrayList<AudioPlayer>(players.values())) {
             player.dispose();
         }
         players.clear();
-         */
     }
 }

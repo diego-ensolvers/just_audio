@@ -158,7 +158,10 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
         }
     };
 
-    /* Old approach
+    public AudioPlayer() {
+    }
+
+    // Old approach
     public AudioPlayer(final Context applicationContext, final BinaryMessenger messenger, final String id, Map<?, ?> audioLoadConfiguration, List<Object> rawAudioEffects, Boolean offloadSchedulingEnabled) {
         this.context = applicationContext;
         this.rawAudioEffects = rawAudioEffects;
@@ -167,6 +170,7 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
         methodChannel.setMethodCallHandler(this);
         eventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.events." + id);
         dataEventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.data." + id);
+        statusEventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.player.status." + id);
         visualizer = new BetterVisualizer(messenger, id);
         processingState = ProcessingState.none;
         extractorsFactory.setConstantBitrateSeekingEnabled(true);
@@ -200,7 +204,8 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
                 livePlaybackSpeedControl = builder.build();
             }
         }
-    }*/
+        statusEventChannel.success(PlayerStatus.started.name());
+    }
 
     private void requestPermissions() {
         ActivityCompat.requestPermissions(activityPluginBinding.getActivity(), new String[] { Manifest.permission.RECORD_AUDIO }, 1);
