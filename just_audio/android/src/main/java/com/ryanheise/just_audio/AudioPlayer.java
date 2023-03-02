@@ -1175,6 +1175,9 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
 
         createNotificationChannel();
 
+        
+        int resourceID = getResources().getIdentifier("ic_stat_notification", "drawable", "life.nue.android");
+
         // Build notification to show activity
         Intent notificationIntent = new Intent(getApplicationContext(), MainMethodCallHandler.playerParamsDTO.activityPluginBinding.getActivity().getClass());
         notificationIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -1188,7 +1191,7 @@ public class AudioPlayer extends Service implements MethodCallHandler, Player.Li
                 .setOnlyAlertOnce(true)
                 .setContentTitle("Nue Life")
                 .setContentText("Playing songs.")
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(resourceID != 0 ? resourceID : R.mipmap.ic_launcher)
                 .setCategory(Notification.CATEGORY_SERVICE);
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
