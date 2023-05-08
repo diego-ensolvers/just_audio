@@ -1308,8 +1308,11 @@ class AudioPlayer {
                 samplingRate: message.samplingRate,
                 data: Int8List.sublistView(message.data),
               )));
-      _playerStatusSubscription = platform
-        .playerStatusStream.listen((message) => _playerStatusSubject.add(message));
+      // TODO: Implement ios native code for this channel.
+      if (Platform.isAndroid) {
+        _playerStatusSubscription = platform
+          .playerStatusStream.listen((message) => _playerStatusSubject.add(message));
+      }
     }
 
     Future<AudioPlayerPlatform> setPlatform() async {
