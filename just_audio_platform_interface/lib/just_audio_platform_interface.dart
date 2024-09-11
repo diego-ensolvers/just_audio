@@ -78,6 +78,11 @@ abstract class AudioPlayerPlatform {
       const Stream<PlayerDataMessage>.empty();
 
   /// A stream of visualizer waveform data.
+  Stream<PlayerStatusMessage> get playerStatusStream {
+    throw UnimplementedError('playerStatusStream has not been implemented.');
+  }
+
+  /// A stream of visualizer waveform data.
   Stream<VisualizerWaveformCaptureMessage> get visualizerWaveformStream {
     throw UnimplementedError(
         'visualizerWaveformStream has not been implemented.');
@@ -412,6 +417,7 @@ class InitRequest {
   final List<AudioEffectMessage> androidAudioEffects;
   final List<AudioEffectMessage> darwinAudioEffects;
   final bool? androidOffloadSchedulingEnabled;
+  final bool androidAudioPreview;
 
   InitRequest({
     required this.id,
@@ -419,6 +425,7 @@ class InitRequest {
     this.androidAudioEffects = const [],
     this.darwinAudioEffects = const [],
     this.androidOffloadSchedulingEnabled,
+    this.androidAudioPreview = false,
   });
 
   Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{
@@ -431,6 +438,7 @@ class InitRequest {
             .map((audioEffect) => audioEffect.toMap())
             .toList(),
         'androidOffloadSchedulingEnabled': androidOffloadSchedulingEnabled,
+        'androidAudioPreview': androidAudioPreview
       };
 }
 
@@ -915,6 +923,8 @@ class StopVisualizerResponse {
   static StopVisualizerResponse fromMap(Map<dynamic, dynamic> map) =>
       StopVisualizerResponse();
 }
+
+enum PlayerStatusMessage { started, stopped }
 
 /// A capture of audio waveform data.
 class VisualizerWaveformCaptureMessage {

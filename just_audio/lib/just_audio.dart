@@ -8,7 +8,6 @@ import 'package:audio_session/audio_session.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:just_audio_platform_interface/just_audio_platform_interface.dart';
 import 'package:meta/meta.dart' show experimental;
 import 'package:path/path.dart' as p;
@@ -64,6 +63,8 @@ class AudioPlayer {
 
   final bool _androidOffloadSchedulingEnabled;
 
+  final bool _androidAudioPreview;
+
   /// This is `true` when the audio player needs to engage the native platform
   /// side of the plugin to decode or play audio, and is `false` when the native
   /// resources are not needed (i.e. after initial instantiation and after [stop]).
@@ -102,6 +103,9 @@ class AudioPlayer {
   /// The subscription to the event channel for FFT data.
   StreamSubscription? _visualizerFftSubscription;
 
+  /// The subscription to the event channel for FFT data.
+  StreamSubscription? _playerStatusSubscription;
+
   final String _id;
   final _proxy = _ProxyHttpServer();
   AudioSource? _audioSource;
@@ -115,6 +119,7 @@ class AudioPlayer {
   final _playbackEventSubject = BehaviorSubject<PlaybackEvent>(sync: true);
   final _visualizerWaveformSubject = BehaviorSubject<VisualizerWaveformCapture>();
   final _visualizerFftSubject = BehaviorSubject<VisualizerFftCapture>();
+  final _playerStatusSubject = BehaviorSubject<PlayerStatusMessage>();
   Future<Duration?>? _durationFuture;
   final _durationSubject = BehaviorSubject<Duration?>();
   final _processingStateSubject = BehaviorSubject<ProcessingState>();
@@ -174,20 +179,21 @@ class AudioPlayer {
   /// The default audio loading and buffering behaviour can be configured via
   /// the [audioLoadConfiguration] parameter.
   AudioPlayer({
-    String? userAgent,
-    bool handleInterruptions = true,
-    bool androidApplyAudioAttributes = true,
-    bool handleAudioSessionActivation = true,
-    AudioLoadConfiguration? audioLoadConfiguration,
-    AudioPipeline? audioPipeline,
-    bool androidOffloadSchedulingEnabled = false,
-  })  : _id = _uuid.v4(),
+      String? userAgent,
+      bool handleInterruptions = true,
+      bool androidApplyAudioAttributes = true,
+      bool handleAudioSessionActivation = true,
+      AudioLoadConfiguration? audioLoadConfiguration,
+      AudioPipeline? audioPipeline,
+      bool androidOffloadSchedulingEnabled = false,
+      bool androidAudioPreview = false})  : _id = _uuid.v4(),
         _userAgent = userAgent,
         _androidApplyAudioAttributes = androidApplyAudioAttributes && _isAndroid(),
         _handleAudioSessionActivation = handleAudioSessionActivation,
         _audioLoadConfiguration = audioLoadConfiguration,
         _audioPipeline = audioPipeline ?? AudioPipeline(),
-        _androidOffloadSchedulingEnabled = androidOffloadSchedulingEnabled {
+        _androidOffloadSchedulingEnabled = androidOffloadSchedulingEnabled,
+        _androidAudioPreview = androidAudioPreview {
     _audioPipeline._setup(this);
     if (_audioLoadConfiguration?.darwinLoadControl != null) {
       _automaticallyWaitsToMinimizeStalling =
@@ -361,6 +367,9 @@ class AudioPlayer {
 
   /// A stream of visualizer FFT data.
   Stream<VisualizerFftCapture> get visualizerFftStream => _visualizerFftSubject.stream;
+
+  /// A stream of player status.
+  Stream<PlayerStatusMessage> get playerStatusStream => _playerStatusSubject.stream;
 
   /// The duration of the current audio or `null` if unknown.
   Duration? get duration => _playbackEvent.duration;
@@ -1143,8 +1152,10 @@ class AudioPlayer {
     _disposed = true;
     await _visualizerWaveformSubscription?.cancel();
     await _visualizerFftSubscription?.cancel();
+    await _playerStatusSubscription?.cancel();
     await _visualizerWaveformSubject.close();
     await _visualizerFftSubject.close();
+    await _playerStatusSubject.close();
     if (_nativePlatform != null) {
       await _disposePlatform(await _nativePlatform!);
       _nativePlatform = null;
@@ -1297,6 +1308,11 @@ class AudioPlayer {
                 samplingRate: message.samplingRate,
                 data: Int8List.sublistView(message.data),
               )));
+      // TODO: Implement ios native code for this channel.
+      if (Platform.isAndroid) {
+        _playerStatusSubscription = platform
+          .playerStatusStream.listen((message) => _playerStatusSubject.add(message));
+      }
     }
 
     Future<AudioPlayerPlatform> setPlatform() async {
@@ -1304,6 +1320,7 @@ class AudioPlayer {
       _playerDataSubscription?.cancel();
       _visualizerWaveformSubscription?.cancel();
       _visualizerFftSubscription?.cancel();
+      _playerStatusSubscription?.cancel();
       if (!force) {
         final oldPlatform = _platformValue!;
         if (oldPlatform is! _IdleAudioPlayer) {
@@ -1324,6 +1341,7 @@ class AudioPlayer {
                   ? _audioPipeline.darwinAudioEffects.map((audioEffect) => audioEffect._toMessage()).toList()
                   : [],
               androidOffloadSchedulingEnabled: _androidOffloadSchedulingEnabled,
+              androidAudioPreview: _androidAudioPreview
             )))
           : (_idlePlatform = _IdleAudioPlayer(id: _id, sequenceStream: sequenceStream));
       if (checkInterruption()) return platform;
@@ -3266,6 +3284,7 @@ enum LoopMode { off, one, all }
 /// state and the native platform is deallocated.
 class _IdleAudioPlayer extends AudioPlayerPlatform {
   final _eventSubject = BehaviorSubject<PlaybackEventMessage>();
+  final _playerStatusSubject = BehaviorSubject<PlayerStatusMessage>();
   final _visualizerWaveformSubject = BehaviorSubject<VisualizerWaveformCaptureMessage>();
   final _visualizerFftSubject = BehaviorSubject<VisualizerFftCaptureMessage>();
   late Duration _position;
@@ -3304,6 +3323,9 @@ class _IdleAudioPlayer extends AudioPlayerPlatform {
 
   @override
   Stream<VisualizerWaveformCaptureMessage> get visualizerWaveformStream => _visualizerWaveformSubject.stream;
+
+  @override
+  Stream<PlayerStatusMessage> get playerStatusStream => _playerStatusSubject.stream;
 
   @override
   Stream<VisualizerFftCaptureMessage> get visualizerFftStream => _visualizerFftSubject.stream;

@@ -2,7 +2,13 @@ package com.ryanheise.just_audio;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.audiofx.AudioEffect;
 import android.media.audiofx.Equalizer;
@@ -11,8 +17,12 @@ import android.media.audiofx.LoudnessEnhancer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
+
+import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.DefaultLivePlaybackSpeedControl;
@@ -28,7 +38,7 @@ import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.Player.PositionInfo;
 import com.google.android.exoplayer2.ExoPlayer;
 import com.google.android.exoplayer2.Timeline;
-import com.google.android.exoplayer2.TracksInfo;
+import com.google.android.exoplayer2.Tracks;
 import com.google.android.exoplayer2.audio.AudioAttributes;
 import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory;
 import com.google.android.exoplayer2.metadata.Metadata;
@@ -68,16 +78,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-public class AudioPlayer implements MethodCallHandler, Player.Listener, MetadataOutput, PluginRegistry.RequestPermissionsResultListener {
-
+public class AudioPlayer extends Service implements MethodCallHandler, Player.Listener, MetadataOutput, PluginRegistry.RequestPermissionsResultListener {
+    static final String CHANNEL_ID = "ForegroundServiceChannel";
     static final String TAG = "AudioPlayer";
 
     private static Random random = new Random();
 
-    private final Context context;
-    private final MethodChannel methodChannel;
-    private final BetterEventChannel eventChannel;
-    private final BetterEventChannel dataEventChannel;
+    private Context context;
+    private MethodChannel methodChannel;
+    private BetterEventChannel eventChannel;
+    private BetterEventChannel dataEventChannel;
+    private BetterEventChannel statusEventChannel;
     private ActivityPluginBinding activityPluginBinding;
 
     private ProcessingState processingState;
@@ -147,6 +158,10 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
         }
     };
 
+    public AudioPlayer() {
+    }
+
+    // Old approach
     public AudioPlayer(final Context applicationContext, final BinaryMessenger messenger, final String id, Map<?, ?> audioLoadConfiguration, List<Object> rawAudioEffects, Boolean offloadSchedulingEnabled) {
         this.context = applicationContext;
         this.rawAudioEffects = rawAudioEffects;
@@ -155,6 +170,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
         methodChannel.setMethodCallHandler(this);
         eventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.events." + id);
         dataEventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.data." + id);
+        statusEventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.player.status." + id);
         visualizer = new BetterVisualizer(messenger, id);
         processingState = ProcessingState.none;
         extractorsFactory.setConstantBitrateSeekingEnabled(true);
@@ -188,6 +204,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
                 livePlaybackSpeedControl = builder.build();
             }
         }
+        statusEventChannel.success(PlayerStatus.started.name());
     }
 
     private void requestPermissions() {
@@ -271,9 +288,9 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
     }
 
     @Override
-    public void onTracksInfoChanged(TracksInfo tracks) {
-        for (int i = 0; i < tracks.getTrackGroupInfos().size(); i++) {
-            TrackGroup trackGroup = tracks.getTrackGroupInfos().get(i).getTrackGroup();
+    public void onTracksChanged(Tracks tracks) {
+        for (int i = 0; i < tracks.getGroups().size(); i++) {
+            TrackGroup trackGroup = tracks.getGroups().get(i).getMediaTrackGroup();
 
             for (int j = 0; j < trackGroup.length; j++) {
                 Metadata metadata = trackGroup.getFormat(j).metadata;
@@ -1078,6 +1095,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
             player.release();
             player = null;
             processingState = ProcessingState.none;
+            statusEventChannel.success(PlayerStatus.stopped.name());
             broadcastImmediatePlaybackEvent();
         }
         visualizer.dispose();
@@ -1126,11 +1144,144 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
         return map;
     }
 
+    private void stop() {
+        stopForeground(true);
+        stopSelf();
+        dispose();
+    }
+
+    /**
+     * Necessary for android 11 compatibility
+     */
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel serviceChannel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "Foreground Service Channel",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            manager.createNotificationChannel(serviceChannel);
+        }
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        // Stop on touch notification
+        if (intent.getAction() != null && intent.getAction().equals("stop")) {
+            stop();
+        }
+
+        createNotificationChannel();
+
+        
+        int resourceID = getResources().getIdentifier("ic_stat_notification", "drawable", "life.nue.android");
+
+        // Build notification to show activity
+        Intent notificationIntent = new Intent(getApplicationContext(), MainMethodCallHandler.playerParamsDTO.activityPluginBinding.getActivity().getClass());
+        notificationIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        //If we want to stop service
+        //stopSelf.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        //stopSelf.setAction("stop");
+        PendingIntent pendingIntent = PendingIntent.getActivity(getApplicationContext(), 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder notificationBuilder = new Notification.Builder(getApplicationContext(), CHANNEL_ID)
+                .setContentIntent(pendingIntent)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setContentTitle("Nue Life")
+                .setContentText("Playing songs.")
+                .setSmallIcon(resourceID != 0 ? resourceID : R.mipmap.ic_launcher)
+                .setCategory(Notification.CATEGORY_SERVICE);
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            notificationBuilder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
+        }
+
+        // Start Service
+        startForeground(1, notificationBuilder.build());
+
+        // Load Params
+        BinaryMessenger messenger = MainMethodCallHandler.playerParamsDTO.binaryMessenger;
+        String id = MainMethodCallHandler.playerParamsDTO.playerId;
+        Map<?, ?> audioLoadConfiguration = MainMethodCallHandler.playerParamsDTO.audioLoadConfiguration;
+        Boolean offloadSchedulingEnabled = MainMethodCallHandler.playerParamsDTO.offloadSchedulingEnabled;
+        this.context = MainMethodCallHandler.playerParamsDTO.appContext;
+        this.rawAudioEffects = MainMethodCallHandler.playerParamsDTO.rawAudioEffects;
+        this.activityPluginBinding = MainMethodCallHandler.playerParamsDTO.activityPluginBinding;
+        this.offloadSchedulingEnabled = offloadSchedulingEnabled != null ? offloadSchedulingEnabled : false;
+
+        // Build and start player
+        methodChannel = new MethodChannel(messenger, "com.ryanheise.just_audio.methods." + id);
+        methodChannel.setMethodCallHandler(this);
+        eventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.events." + id);
+        dataEventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.data." + id);
+        statusEventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.player.status." + id);
+        visualizer = new BetterVisualizer(messenger, id);
+        processingState = ProcessingState.none;
+        extractorsFactory.setConstantBitrateSeekingEnabled(true);
+        if (audioLoadConfiguration != null) {
+            Map<?, ?> loadControlMap = (Map<?, ?>)audioLoadConfiguration.get("androidLoadControl");
+            if (loadControlMap != null) {
+                DefaultLoadControl.Builder builder = new DefaultLoadControl.Builder()
+                        .setBufferDurationsMs(
+                                (int)((getLong(loadControlMap.get("minBufferDuration")))/1000),
+                                (int)((getLong(loadControlMap.get("maxBufferDuration")))/1000),
+                                (int)((getLong(loadControlMap.get("bufferForPlaybackDuration")))/1000),
+                                (int)((getLong(loadControlMap.get("bufferForPlaybackAfterRebufferDuration")))/1000)
+                        )
+                        .setPrioritizeTimeOverSizeThresholds((Boolean)loadControlMap.get("prioritizeTimeOverSizeThresholds"))
+                        .setBackBuffer((int)((getLong(loadControlMap.get("backBufferDuration")))/1000), false);
+                if (loadControlMap.get("targetBufferBytes") != null) {
+                    builder.setTargetBufferBytes((Integer)loadControlMap.get("targetBufferBytes"));
+                }
+                loadControl = builder.build();
+            }
+            Map<?, ?> livePlaybackSpeedControlMap = (Map<?, ?>)audioLoadConfiguration.get("androidLivePlaybackSpeedControl");
+            if (livePlaybackSpeedControlMap != null) {
+                DefaultLivePlaybackSpeedControl.Builder builder = new DefaultLivePlaybackSpeedControl.Builder()
+                        .setFallbackMinPlaybackSpeed((float)((double)((Double)livePlaybackSpeedControlMap.get("fallbackMinPlaybackSpeed"))))
+                        .setFallbackMaxPlaybackSpeed((float)((double)((Double)livePlaybackSpeedControlMap.get("fallbackMaxPlaybackSpeed"))))
+                        .setMinUpdateIntervalMs(((getLong(livePlaybackSpeedControlMap.get("minUpdateInterval")))/1000))
+                        .setProportionalControlFactor((float)((double)((Double)livePlaybackSpeedControlMap.get("proportionalControlFactor"))))
+                        .setMaxLiveOffsetErrorMsForUnitSpeed(((getLong(livePlaybackSpeedControlMap.get("maxLiveOffsetErrorForUnitSpeed")))/1000))
+                        .setTargetLiveOffsetIncrementOnRebufferMs(((getLong(livePlaybackSpeedControlMap.get("targetLiveOffsetIncrementOnRebuffer")))/1000))
+                        .setMinPossibleLiveOffsetSmoothingFactor((float)((double)((Double)livePlaybackSpeedControlMap.get("minPossibleLiveOffsetSmoothingFactor"))));
+                livePlaybackSpeedControl = builder.build();
+            }
+        }
+        statusEventChannel.success(PlayerStatus.started.name());
+        return START_STICKY;
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        stop();
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        stop();
+    }
+
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
     enum ProcessingState {
         none,
         loading,
         buffering,
         ready,
         completed
+    }
+
+    enum PlayerStatus {
+        started,
+        stopped
     }
 }
